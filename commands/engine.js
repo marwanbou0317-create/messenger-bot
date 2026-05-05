@@ -12,7 +12,12 @@ const {
 } = require('../utils/state');
 const log = require('../utils/logger');
 
-let api = null;
+// الـ api الحالية — يتم تحديثها عند كل اتصال جديد
+let currentApi = null;
+
+function setApi(api) {
+  currentApi = api;
+}
 
 function startEngineTimer() {
   if (engineState.timers.has('main')) {
@@ -25,14 +30,14 @@ function startEngineTimer() {
   const interval = engineState.intervalSeconds * 1000;
 
   const timer = setInterval(() => {
-    if (!engineState.enabled || !api || !engineState.targetThreadID) return;
+    if (!engineState.enabled || !currentApi || !engineState.targetThreadID) return;
 
     if (engineState.smart) {
       if (!hasActivity(engineState.targetThreadID)) return;
       clearActivity(engineState.targetThreadID);
     }
 
-    api.sendMessage(engineState.message, engineState.targetThreadID, (err) => {
+    currentApi.sendMessage(engineState.message, engineState.targetThreadID, (err) => {
       if (err) log.error('Engine send error: ' + err);
     });
   }, interval);
@@ -48,13 +53,11 @@ function stopEngineTimer() {
 }
 
 function handle(event, botApi, args, prefix) {
-  api = botApi;
+  // تحديث الـ api عند كل استخدام للأوامر
+  setApi(botApi);
+
   const senderID = event.senderID;
   const threadID = event.threadID;
-
-  if (!isAdmin(senderID)) {
-    return api.sendMessage('❌ ليس لديك صلاحية استخدام هذا الأمر.', threadID);
-  }
 
   const subCmd = args[0] ? args[0].toLowerCase() : '';
 
@@ -63,7 +66,7 @@ function handle(event, botApi, args, prefix) {
       stopEngineTimer();
       setEngineEnabled(false);
       log.bot('Engine stopped by ' + senderID);
-      return api.sendMessage('🔴 تم إيقاف المحرك.', threadID);
+      return botApi.sendMessage('🔴 تم إيقاف المحرك.', threadID);
     } else {
       if (!engineState.targetThreadID) {
         setEngineTarget(threadID);
@@ -71,7 +74,7 @@ function handle(event, botApi, args, prefix) {
       setEngineEnabled(true);
       startEngineTimer();
       log.bot('Engine started by ' + senderID);
-      return api.sendMessage(
+      return botApi.sendMessage(
         `🟢 تم تشغيل المحرك.\n📍 المجموعة: ${engineState.targetThreadID}\n⏱ كل: ${engineState.intervalSeconds} ثانية\n💬 الرسالة: ${engineState.message}\n🧠 الذكي: ${engineState.smart ? 'مفعل' : 'موقوف'}`,
         threadID
       );
@@ -80,23 +83,23 @@ function handle(event, botApi, args, prefix) {
 
   if (subCmd === 'رسالة' || subCmd === 'message') {
     const msg = args.slice(1).join(' ');
-    if (!msg) return api.sendMessage('❗ أرسل الرسالة بعد الأمر.\nمثال: /محرك رسالة مرحباً', threadID);
+    if (!msg) return botApi.sendMessage('❗ أرسل الرسالة بعد الأمر.\nمثال: /محرك رسالة مرحباً', threadID);
     setEngineMessage(msg);
-    return api.sendMessage(`✅ تم تعيين رسالة المحرك:\n"${msg}"`, threadID);
+    return botApi.sendMessage(`✅ تم تعيين رسالة المحرك:\n"${msg}"`, threadID);
   }
 
   if (subCmd === 'وقت' || subCmd === 'time') {
     const secs = parseInt(args[1]);
-    if (isNaN(secs) || secs < 1) return api.sendMessage('❗ أرسل وقتاً صحيحاً بالثواني.\nمثال: /محرك وقت 30', threadID);
+    if (isNaN(secs) || secs < 1) return botApi.sendMessage('❗ أرسل وقتاً صحيحاً بالثواني.\nمثال: /محرك وقت 30', threadID);
     setEngineInterval(secs);
     if (engineState.enabled) startEngineTimer();
-    return api.sendMessage(`✅ تم تعيين وقت المحرك: ${secs} ثانية.`, threadID);
+    return botApi.sendMessage(`✅ تم تعيين وقت المحرك: ${secs} ثانية.`, threadID);
   }
 
   if (subCmd === 'الذكي' || subCmd === 'smart') {
     const newVal = !engineState.smart;
     setEngineSmart(newVal);
-    return api.sendMessage(
+    return botApi.sendMessage(
       newVal
         ? '🧠 تم تفعيل وضع الذكي.\nسيرسل المحرك فقط عند وجود نشاط في المجموعة.'
         : '🧠 تم إيقاف وضع الذكي.',
@@ -105,24 +108,24 @@ function handle(event, botApi, args, prefix) {
   }
 
   if (subCmd === 'تشغيل' || subCmd === 'on') {
-    if (engineState.enabled) return api.sendMessage('⚠️ المحرك يعمل بالفعل.', threadID);
+    if (engineState.enabled) return botApi.sendMessage('⚠️ المحرك يعمل بالفعل.', threadID);
     if (!engineState.targetThreadID) setEngineTarget(threadID);
     setEngineEnabled(true);
     startEngineTimer();
     log.bot('Engine started by ' + senderID);
-    return api.sendMessage(`🟢 تم تشغيل المحرك.`, threadID);
+    return botApi.sendMessage(`🟢 تم تشغيل المحرك.`, threadID);
   }
 
   if (subCmd === 'ايقاف' || subCmd === 'إيقاف' || subCmd === 'off') {
-    if (!engineState.enabled) return api.sendMessage('⚠️ المحرك متوقف بالفعل.', threadID);
+    if (!engineState.enabled) return botApi.sendMessage('⚠️ المحرك متوقف بالفعل.', threadID);
     stopEngineTimer();
     setEngineEnabled(false);
     log.bot('Engine stopped by ' + senderID);
-    return api.sendMessage('🔴 تم إيقاف المحرك.', threadID);
+    return botApi.sendMessage('🔴 تم إيقاف المحرك.', threadID);
   }
 
   if (subCmd === 'حالة' || subCmd === 'status') {
-    return api.sendMessage(
+    return botApi.sendMessage(
       `📊 حالة المحرك:\n` +
       `▪️ الحالة: ${engineState.enabled ? '🟢 يعمل' : '🔴 متوقف'}\n` +
       `▪️ الرسالة: ${engineState.message}\n` +
@@ -133,7 +136,7 @@ function handle(event, botApi, args, prefix) {
     );
   }
 
-  return api.sendMessage(
+  return botApi.sendMessage(
     `⚙️ أوامر المحرك:\n` +
     `${prefix}محرك — تشغيل/إيقاف\n` +
     `${prefix}محرك رسالة [نص] — تحديد الرسالة\n` +
@@ -144,5 +147,5 @@ function handle(event, botApi, args, prefix) {
   );
 }
 
-module.exports = { handle, startEngineTimer, stopEngineTimer };
+module.exports = { handle, setApi, startEngineTimer, stopEngineTimer };
 module.exports.markActivityForEngine = markActivity;
