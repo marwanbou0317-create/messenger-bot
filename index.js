@@ -15,6 +15,7 @@ const demoteCmd = require('./commands/demote');
 const helpCmd = require('./commands/help');
 const serverCmd = require('./commands/server');
 const nicknameCmd = require('./commands/nickname');
+const nicknamesCmd = require('./commands/nicknames');
 const pingCmd = require('./commands/ping');
 
 const APPSTATE_PATH = path.join(__dirname, 'appstate.json');
@@ -62,7 +63,6 @@ async function handleCommand(event, api) {
 
   log.bot(`Command [${cmd}] from ${senderID} in ${threadID}`);
 
-  // تأخير قصير قبل الرد لإبدو أكثر طبيعية
   await replyDelay();
 
   switch (cmd) {
@@ -99,6 +99,14 @@ async function handleCommand(event, api) {
         return api.sendMessage('❌ ليس لديك صلاحية استخدام هذا الأمر.', threadID);
       }
       nicknameCmd.handle(event, api, args);
+      break;
+
+    case 'كنيات':
+    case 'nicknames':
+      if (!isAdmin(senderID)) {
+        return api.sendMessage('❌ ليس لديك صلاحية استخدام هذا الأمر.', threadID);
+      }
+      nicknamesCmd.handle(event, api, args);
       break;
 
     case 'رفع':
