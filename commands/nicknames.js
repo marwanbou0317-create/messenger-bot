@@ -2,6 +2,24 @@ const { isAdmin } = require('../utils/admin');
 const { longDelay, replyDelay } = require('../utils/delay');
 const log = require('../utils/logger');
 
+async function changeNick(api, nickname, threadID, uid) {
+  return new Promise((resolve) => {
+    try {
+      api.changeNickname(nickname, threadID, uid, (err) => {
+        if (err) {
+          log.error(`nicknames: فشل للمستخدم ${uid}: ${JSON.stringify(err)}`);
+          resolve(false);
+        } else {
+          resolve(true);
+        }
+      });
+    } catch (e) {
+      log.error(`nicknames: استثناء للمستخدم ${uid}: ${e.message}`);
+      resolve(false);
+    }
+  });
+}
+
 async function handle(event, api, args) {
   const senderID = event.senderID;
   const threadID = event.threadID;
@@ -25,8 +43,11 @@ async function handle(event, api, args) {
   const isReset = input.toLowerCase() === 'reset' || input === 'مسح';
   const nickname = isReset ? '' : input;
 
+  await replyDelay();
+
   api.getThreadInfo(threadID, async (err, info) => {
     if (err || !info) {
+      log.error('nicknames: فشل getThreadInfo: ' + JSON.stringify(err));
       return api.sendMessage('❌ تعذّر جلب معلومات المجموعة.', threadID);
     }
 
@@ -34,8 +55,6 @@ async function handle(event, api, args) {
     if (participants.length === 0) {
       return api.sendMessage('⚠️ لا يوجد أعضاء في المجموعة.', threadID);
     }
-
-    await replyDelay();
 
     api.sendMessage(
       `⏳ جاري ${isReset ? 'مسح' : `تعيين كنية "${nickname}"`} لـ ${participants.length} عضو...\n(سيستغرق بعض الوقت لتجنب الحظر)`,
@@ -47,23 +66,17 @@ async function handle(event, api, args) {
 
     for (const uid of participants) {
       await longDelay();
-
-      await new Promise(resolve => {
-        api.changeNickname(nickname, threadID, uid, (err2) => {
-          if (err2) {
-            log.error(`nicknames: failed for ${uid}: ${err2}`);
-            failed++;
-          } else {
-            done++;
-          }
-          resolve();
-        });
-      });
+      const success = await changeNick(api, nickname, threadID, uid);
+      if (success) {
+        done++;
+      } else {
+        failed++;
+      }
     }
 
     api.sendMessage(
       isReset
-        ? `✅ تم مسح كنيات ${done} عضو.${failed ? ` (فشل: ${failed})` : ''}`
+        ? `✅ تم مسح كنيات ${done} عضو.${failed ? `\n⚠️ فشل: ${failed} عضو` : ''}`
         : `✅ تم تعيين كنية "${nickname}" لـ ${done} عضو.${failed ? `\n⚠️ فشل: ${failed} عضو` : ''}`,
       threadID
     );
