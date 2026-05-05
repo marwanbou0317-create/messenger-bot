@@ -9,7 +9,6 @@ async function getThread(api, threadID) {
     const r = api.getThreadInfo(threadID);
     if (r && typeof r.then === 'function') return await r;
   } catch (_) {}
-
   return new Promise((resolve) => {
     const timer = setTimeout(() => resolve(null), 15000);
     try {
@@ -17,40 +16,48 @@ async function getThread(api, threadID) {
         clearTimeout(timer);
         resolve(err ? null : info);
       });
-    } catch (e) {
-      clearTimeout(timer);
-      log.error('getThread استثناء: ' + e.message);
-      resolve(null);
-    }
+    } catch (e) { clearTimeout(timer); resolve(null); }
   });
 }
 
-async function setNick(api, nickname, threadID, uid) {
+// نسخة تشخيصية — ترسل الخطأ الحقيقي للشات
+async function diagNick(api, nickname, threadID, uid) {
+  // اختبر Promise أولاً
   try {
     const r = api.changeNickname(nickname, threadID, uid);
-    if (r && typeof r.then === 'function') { await r; return true; }
-  } catch (_) {}
+    if (r && typeof r.then === 'function') {
+      try {
+        await r;
+        return { ok: true, method: 'promise' };
+      } catch (e) {
+        return { ok: false, method: 'promise', err: e.message };
+      }
+    }
+    // ليست promise، سجّل النوع
+    const rType = r === undefined ? 'undefined' : (r === null ? 'null' : typeof r);
+    log.bot('changeNickname returned: ' + rType);
+  } catch (e) {
+    return { ok: false, method: 'promise-throw', err: e.message };
+  }
 
+  // جرب callback
   return new Promise((resolve) => {
-    const timer = setTimeout(() => resolve(false), 10000);
+    const timer = setTimeout(() => resolve({ ok: false, method: 'callback', err: 'timeout 10s' }), 10000);
     try {
       api.changeNickname(nickname, threadID, uid, (err) => {
         clearTimeout(timer);
-        resolve(!err);
+        if (err) {
+          const errStr = typeof err === 'object' ? JSON.stringify(err) : String(err);
+          resolve({ ok: false, method: 'callback', err: errStr });
+        } else {
+          resolve({ ok: true, method: 'callback' });
+        }
       });
     } catch (e) {
       clearTimeout(timer);
-      resolve(false);
+      resolve({ ok: false, method: 'callback-throw', err: e.message });
     }
   });
-}
-
-async function setNickRetry(api, nickname, threadID, uid) {
-  for (let i = 1; i <= 3; i++) {
-    if (await setNick(api, nickname, threadID, uid)) return true;
-    if (i < 3) await sleep(5000 * i);
-  }
-  return false;
 }
 
 async function handle(event, api, args) {
@@ -72,27 +79,34 @@ async function handle(event, api, args) {
   api.sendMessage('⏳ جاري جلب أعضاء المجموعة...', threadID);
 
   const info = await getThread(api, threadID);
-  if (!info) return api.sendMessage('❌ تعذّر جلب معلومات المجموعة. حاول مرة أخرى.', threadID);
+  if (!info) return api.sendMessage('❌ تعذّر جلب معلومات المجموعة.', threadID);
 
   const members = info.participantIDs || [];
   if (!members.length) return api.sendMessage('⚠️ لا يوجد أعضاء.', threadID);
 
-  api.sendMessage(
-    `⏳ جاري ${isReset ? 'مسح' : `تعيين "${nickname}"`} لـ ${members.length} عضو...`,
-    threadID
-  );
+  // اختبر على أول عضو فقط وأرسل النتيجة
+  api.sendMessage(`🔍 وجدت ${members.length} عضو. جاري اختبار أول عضو (${members[0]})...`, threadID);
 
-  let done = 0, fail = 0;
-  for (let i = 0; i < members.length; i++) {
-    if (i > 0 && i % 5 === 0) await sleep(15000);
-    else if (i > 0) await sleep(5000 + Math.random() * 3000);
+  const result = await diagNick(api, nickname, threadID, members[0]);
 
-    if (await setNickRetry(api, nickname, threadID, members[i])) {
-      done++;
-      if (done % 10 === 0) api.sendMessage(`⏳ تم ${done} من ${members.length}...`, threadID);
-    } else {
-      fail++;
-    }
+  if (!result.ok) {
+    return api.sendMessage(
+      `❌ فشل تغيير الكنية\nالطريقة: ${result.method}\nالخطأ: ${result.err}`,
+      threadID
+    );
+  }
+
+  // نجح الاختبار — كمّل على الباقين
+  api.sendMessage(`✅ نجح الاختبار (${result.method}). جاري المعالجة لـ ${members.length} عضو...`, threadID);
+
+  let done = 1, fail = 0;
+
+  for (let i = 1; i < members.length; i++) {
+    if (i % 5 === 0) await sleep(15000);
+    else await sleep(5000 + Math.random() * 3000);
+
+    const r = await diagNick(api, nickname, threadID, members[i]);
+    r.ok ? done++ : fail++;
   }
 
   api.sendMessage(
