@@ -21,7 +21,11 @@ function handle(event, api, args, prefix) {
     `${prefix}قفل — قفل/فتح هذه المجموعة\n` +
     `${prefix}قفل الذكي — قفل كل المجموعات\n` +
     `${prefix}قفل عادي — قفل هذه المجموعة\n` +
-    `${prefix}قفل حالة`;
+    `${prefix}قفل حالة\n\n` +
+    `${prefix}كنية @شخص [كنية] — تعيين كنية\n` +
+    `${prefix}كنية @شخص reset — مسح الكنية\n` +
+    `${prefix}كنية الكل [كنية] — كنية للجميع\n` +
+    `${prefix}كنية الكل reset — مسح كنيات الجميع`;
 
   const superAdminCommands =
     `\n\n👑 أوامر سوبر أدمن:\n` +
