@@ -7,6 +7,7 @@ function handle(event, api, args, prefix) {
 
   const baseCommands =
     `📋 قائمة الأوامر:\n\n` +
+    `${prefix}ping — اختبار البوت\n` +
     `${prefix}اوامر — عرض هذه القائمة\n` +
     `${prefix}سيرفر — معلومات البوت والسيرفر\n` +
     `${prefix}ابتيم — وقت تشغيل البوت`;
