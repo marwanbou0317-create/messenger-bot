@@ -1,23 +1,40 @@
 const { isAdmin } = require('../utils/admin');
-const { longDelay, replyDelay } = require('../utils/delay');
+const { randomDelay, replyDelay } = require('../utils/delay');
 const log = require('../utils/logger');
 
-function changeNick(api, nickname, threadID, uid) {
-  return new Promise((resolve) => {
-    try {
-      api.changeNickname(nickname, threadID, uid, (err) => {
-        if (err) {
-          log.error(`nickname: فشل للمستخدم ${uid}: ${JSON.stringify(err)}`);
-          resolve(false);
-        } else {
-          resolve(true);
-        }
-      });
-    } catch (e) {
-      log.error(`nickname: استثناء للمستخدم ${uid}: ${e.message}`);
-      resolve(false);
+function sleep(ms) {
+  return new Promise(r => setTimeout(r, ms));
+}
+
+// محاولة تغيير كنية مع إعادة المحاولة تلقائياً
+async function changeNickWithRetry(api, nickname, threadID, uid, maxRetries = 3) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    const success = await new Promise((resolve) => {
+      try {
+        api.changeNickname(nickname, threadID, uid, (err) => {
+          if (err) {
+            log.error(`nickname [${attempt}/${maxRetries}] فشل للمستخدم ${uid}: ${JSON.stringify(err)}`);
+            resolve(false);
+          } else {
+            resolve(true);
+          }
+        });
+      } catch (e) {
+        log.error(`nickname [${attempt}/${maxRetries}] استثناء للمستخدم ${uid}: ${e.message}`);
+        resolve(false);
+      }
+    });
+
+    if (success) return true;
+
+    // انتظار أطول بين كل محاولة فاشلة
+    if (attempt < maxRetries) {
+      const waitMs = attempt * 4000 + Math.floor(Math.random() * 3000);
+      log.bot(`nickname: انتظار ${waitMs}ms قبل إعادة المحاولة للمستخدم ${uid}`);
+      await sleep(waitMs);
     }
-  });
+  }
+  return false;
 }
 
 async function handle(event, api, args) {
@@ -40,7 +57,7 @@ async function handle(event, api, args) {
 
     api.getThreadInfo(threadID, async (err, info) => {
       if (err || !info) {
-        log.error('nickname: فشل getThreadInfo: ' + JSON.stringify(err));
+        log.error('nickname/الكل: فشل getThreadInfo: ' + JSON.stringify(err));
         return api.sendMessage('❌ تعذّر جلب معلومات المجموعة.', threadID);
       }
 
@@ -50,16 +67,26 @@ async function handle(event, api, args) {
       }
 
       api.sendMessage(
-        `⏳ جاري ${isReset ? 'مسح' : `تعيين كنية "${nickname}"`} لـ ${participants.length} عضو...\n(سيستغرق بعض الوقت لتجنب الحظر)`,
+        `⏳ جاري ${isReset ? 'مسح كنيات' : `تعيين كنية "${nickname}" لـ`} ${participants.length} عضو...\n(دفعات بتأخير لتجنب الحظر)`,
         threadID
       );
 
       let done = 0;
       let failed = 0;
+      const BATCH = 5;
 
-      for (const uid of participants) {
-        await longDelay();
-        const success = await changeNick(api, nickname, threadID, uid);
+      for (let i = 0; i < participants.length; i++) {
+        // توقف أطول بين كل دفعة
+        if (i > 0 && i % BATCH === 0) {
+          const pause = 12000 + Math.floor(Math.random() * 8000);
+          log.bot(`nickname/الكل: توقف دفعة ${pause}ms`);
+          await sleep(pause);
+        } else if (i > 0) {
+          await randomDelay(4000, 8000);
+        }
+
+        const uid = participants[i];
+        const success = await changeNickWithRetry(api, nickname, threadID, uid);
         if (success) { done++; } else { failed++; }
       }
 
@@ -98,10 +125,10 @@ async function handle(event, api, args) {
 
   await replyDelay();
 
-  const success = await changeNick(api, nickname, threadID, targetID);
+  const success = await changeNickWithRetry(api, nickname, threadID, targetID);
 
   if (!success) {
-    return api.sendMessage('❌ فشل تغيير الكنية. تأكد من أن البوت مشرف في المجموعة.', threadID);
+    return api.sendMessage('❌ فشل تغيير الكنية بعد عدة محاولات.\nتأكد أن البوت مشرف في المجموعة.', threadID);
   }
 
   log.bot(`Nickname changed for ${targetID} by ${senderID}`);
