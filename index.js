@@ -199,9 +199,6 @@ function startBot() {
       }
       return result;
     };
-        return result;
-      };
-    }
 
     if (api.getThreadInfo) {
       const _origInfo = api.getThreadInfo.bind(api);
