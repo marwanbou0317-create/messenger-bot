@@ -5,25 +5,23 @@ const config = require('./config.json');
 const log = require('./utils/logger');
 const { isAdmin } = require('./utils/admin');
 const { isLocked, markActivity } = require('./utils/state');
-const { isKnown, markKnown } = require('./utils/threads');
 const { setStartTime } = require('./commands/server');
 const { replyDelay } = require('./utils/delay');
 
 const engineCmd = require('./commands/engine');
 const lockCmd = require('./commands/lock');
+const promoteCmd = require('./commands/promote');
+const demoteCmd = require('./commands/demote');
 const helpCmd = require('./commands/help');
 const serverCmd = require('./commands/server');
 const nicknameCmd = require('./commands/nickname');
 const nicknamesCmd = require('./commands/nicknames');
 const pingCmd = require('./commands/ping');
-const promoteCmd = require('./commands/promote');
-const demoteCmd = require('./commands/demote');
 
 const APPSTATE_PATH = path.join(__dirname, 'appstate.json');
 
 let reconnectAttempts = 0;
 let globalApi = null;
-let botID = null;
 
 function loadAppstate() {
   try {
@@ -50,7 +48,7 @@ function saveAppstate(state) {
 }
 
 async function handleCommand(event, api) {
-  const body = event.body || '\';
+  const body = event.body || '';
   const prefix = config.prefix;
 
   if (!body.startsWith(prefix)) return false;
@@ -151,40 +149,6 @@ function handleEvent(event, api) {
   }
 }
 
-async function handleNewThread(threadID, api) {
-  log.bot(`قروب جديد مكتشف: ${threadID} — جاري القبول وتعيين الكنية MADOX...`);
-
-  try {
-    if (typeof api.handleMessageRequest === 'function') {
-      await new Promise((resolve) => {
-        api.handleMessageRequest(threadID, true, (err) => {
-          if (err) log.error('handleMessageRequest: ' + JSON.stringify(err));
-          else log.bot('تم قبول طلب المراسلة: ' + threadID);
-          resolve();
-        });
-      });
-    }
-  } catch (e) {
-    log.error('handleMessageRequest استثناء: ' + e.message);
-  }
-
-  await new Promise((r) => setTimeout(r, 2500));
-
-  if (!botID) return;
-
-  try {
-    await new Promise((resolve) => {
-      api.changeNickname('MADOX', threadID, botID, (err) => {
-        if (err) log.error('auto-nickname: ' + JSON.stringify(err));
-        else log.bot('تم تعيين الكنية MADOX في: ' + threadID);
-        resolve();
-      });
-    });
-  } catch (e) {
-    log.error('auto-nickname استثناء: ' + e.message);
-  }
-}
-
 function startBot() {
   const appstate = loadAppstate();
 
@@ -224,7 +188,6 @@ function startBot() {
 
     reconnectAttempts = 0;
     globalApi = api;
-    botID = api.getCurrentUserID();
     engineCmd.setApi(api);
     setStartTime(Date.now());
 
@@ -288,12 +251,6 @@ function startBot() {
 
       if (event.type === 'message' || event.type === 'message_reply') {
         markActivity(event.threadID);
-
-        if (!isKnown(event.threadID)) {
-          markKnown(event.threadID);
-          handleNewThread(event.threadID, api);
-        }
-
         if (isLocked(event.threadID) && !isAdmin(event.senderID)) return;
         handleCommand(event, api);
       } else if (event.type === 'event') {
