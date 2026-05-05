@@ -199,14 +199,6 @@ function startBot() {
       }
       return result;
     };
-
-    if (api.changeNickname) {
-      const _origNick = api.changeNickname.bind(api);
-      api.changeNickname = (nick, tid, uid, cb) => {
-        const result = _origNick(nick, tid, uid, cb);
-        if (result && typeof result.catch === 'function') {
-          result.catch((e) => log.error('changeNickname خطأ: ' + JSON.stringify(e)));
-        }
         return result;
       };
     }
