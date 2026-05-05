@@ -14,6 +14,7 @@ const demoteCmd = require('./commands/demote');
 const helpCmd = require('./commands/help');
 const serverCmd = require('./commands/server');
 const nicknameCmd = require('./commands/nickname');
+const pingCmd = require('./commands/ping');
 
 const APPSTATE_PATH = path.join(__dirname, 'appstate.json');
 const CONFIG_PATH = path.join(__dirname, 'config.json');
@@ -54,11 +55,6 @@ function handleCommand(event, api) {
   const threadID = event.threadID;
   const senderID = event.senderID;
 
-  const locked = isLocked(threadID);
-  if (locked && !isAdmin(senderID)) {
-    return true;
-  }
-
   const withoutPrefix = body.slice(prefix.length).trim();
   const parts = withoutPrefix.split(/\s+/);
   const cmd = parts[0].toLowerCase();
@@ -67,6 +63,11 @@ function handleCommand(event, api) {
   log.bot(`Command [${cmd}] from ${senderID} in ${threadID}`);
 
   switch (cmd) {
+    case 'ping':
+    case 'بينج':
+      pingCmd.handle(event, api);
+      break;
+
     case 'اوامر':
     case 'أوامر':
     case 'help':
@@ -75,16 +76,25 @@ function handleCommand(event, api) {
 
     case 'محرك':
     case 'engine':
+      if (!isAdmin(senderID)) {
+        return api.sendMessage('❌ ليس لديك صلاحية استخدام هذا الأمر.', threadID);
+      }
       engineCmd.handle(event, api, args, prefix);
       break;
 
     case 'قفل':
     case 'lock':
+      if (!isAdmin(senderID)) {
+        return api.sendMessage('❌ ليس لديك صلاحية استخدام هذا الأمر.', threadID);
+      }
       lockCmd.handle(event, api, args, prefix);
       break;
 
     case 'كنية':
     case 'nickname':
+      if (!isAdmin(senderID)) {
+        return api.sendMessage('❌ ليس لديك صلاحية استخدام هذا الأمر.', threadID);
+      }
       nicknameCmd.handle(event, api, args);
       break;
 
@@ -110,6 +120,7 @@ function handleCommand(event, api) {
       break;
 
     default:
+      log.bot(`Unknown command [${cmd}] from ${senderID}`);
       return false;
   }
 
@@ -141,7 +152,7 @@ function startBot() {
 
   if (!appstate) {
     log.error('لا يمكن بدء البوت بدون appstate صحيح.');
-    log.info('ضع ملف appstate.json الصحيح ثم أعد التشغيل.');
+    log.info('شغّل: node reset-cookies.js لتجديد الجلسة.');
     return;
   }
 
@@ -162,7 +173,19 @@ function startBot() {
 
   login(loginOptions, (err, api) => {
     if (err) {
-      log.error('فشل تسجيل الدخول: ' + (err.error || JSON.stringify(err)));
+      const errMsg = err.error || err.message || JSON.stringify(err);
+      log.error('فشل تسجيل الدخول: ' + errMsg);
+
+      if (errMsg === 'login-approval' || errMsg.includes('checkpoint')) {
+        log.error('⚠️  الحساب محتاج موافقة. تحقق من البريد أو SMS ثم شغّل: node reset-cookies.js');
+        return;
+      }
+
+      if (errMsg.includes('Not logged in') || errMsg.includes('appstate')) {
+        log.error('⚠️  انتهت صلاحية الجلسة. شغّل: node reset-cookies.js لتجديدها.');
+        return;
+      }
+
       scheduleReconnect();
       return;
     }
@@ -171,7 +194,6 @@ function startBot() {
     globalApi = api;
     setStartTime(Date.now());
 
-    // Wrap sendMessage to auto-catch rejected promises from any command
     const _origSend = api.sendMessage.bind(api);
     api.sendMessage = (msg, threadID, callback) => {
       const result = _origSend(msg, threadID, callback);
@@ -181,7 +203,6 @@ function startBot() {
       return result;
     };
 
-    // Wrap changeNickname similarly
     if (api.changeNickname) {
       const _origNick = api.changeNickname.bind(api);
       api.changeNickname = (nick, threadID, userID, callback) => {
@@ -193,7 +214,6 @@ function startBot() {
       };
     }
 
-    // Wrap getThreadInfo similarly
     if (api.getThreadInfo) {
       const _origInfo = api.getThreadInfo.bind(api);
       api.getThreadInfo = (threadID, callback) => {
@@ -208,6 +228,7 @@ function startBot() {
     saveAppstate(api.getAppState());
     log.success('تم تسجيل الدخول بنجاح!');
     log.info('البوت يعمل الآن. البادئة: ' + config.prefix);
+    log.info('للاختبار اكتب في الماسنجر: ' + config.prefix + 'ping');
 
     api.setOptions({
       listenEvents: config.listenEvents !== false,
@@ -235,8 +256,8 @@ function startBot() {
       if (event.type === 'message' || event.type === 'message_reply') {
         markActivity(event.threadID);
 
-        const isLock = isLocked(event.threadID);
-        if (isLock && !isAdmin(event.senderID)) return;
+        // إذا كانت المجموعة مقفولة والمرسل ليس أدمن، تجاهل الرسالة
+        if (isLocked(event.threadID) && !isAdmin(event.senderID)) return;
 
         handleCommand(event, api);
       } else if (event.type === 'event') {
@@ -244,6 +265,7 @@ function startBot() {
       }
     });
 
+    // حفظ appstate كل 10 دقائق
     setInterval(() => {
       saveAppstate(api.getAppState());
     }, 10 * 60 * 1000);
