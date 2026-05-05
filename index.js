@@ -25,6 +25,7 @@ const APPSTATE_PATH = path.join(__dirname, 'appstate.json');
 
 let reconnectAttempts = 0;
 let globalApi = null;
+let botID = null;
 
 function loadAppstate() {
   try {
@@ -157,7 +158,7 @@ async function handleCommand(event, api) {
   return true;
 }
 
-function handleEvent(event, api) {
+async function handleEvent(event, api) {
   const activityTypes = [
     'change_thread_name', 'change_group_image', 'change_nickname',
     'change_thread_color', 'change_thread_icon', 'add_participants',
@@ -165,6 +166,49 @@ function handleEvent(event, api) {
   ];
   if (activityTypes.includes(event.type)) {
     markActivity(event.threadID);
+  }
+
+  // اكتشاف إضافة البوت لقروب جديد
+  if (event.logMessageType === 'log:subscribe') {
+    const added = event.logMessageData?.addedParticipants || [];
+    const botWasAdded = botID && added.some(
+      (p) => String(p.userFbId || p.id || '') === String(botID)
+    );
+
+    if (botWasAdded) {
+      const threadID = event.threadID;
+      log.bot(`تم إضافة البوت لقروب جديد: ${threadID} — جاري القبول وتعيين الكنية...`);
+
+      // قبول طلب المراسلة تلقائياً
+      try {
+        if (typeof api.handleMessageRequest === 'function') {
+          await new Promise((resolve) => {
+            api.handleMessageRequest(threadID, true, (err) => {
+              if (err) log.error('handleMessageRequest خطأ: ' + JSON.stringify(err));
+              else log.bot('تم قبول طلب المراسلة للقروب: ' + threadID);
+              resolve();
+            });
+          });
+        }
+      } catch (e) {
+        log.error('handleMessageRequest استثناء: ' + e.message);
+      }
+
+      // تأخير قصير ثم تعيين الكنية MADOX
+      await new Promise((r) => setTimeout(r, 2000));
+
+      try {
+        await new Promise((resolve) => {
+          api.changeNickname('MADOX', threadID, botID, (err) => {
+            if (err) log.error('auto-nickname خطأ: ' + JSON.stringify(err));
+            else log.bot('تم تعيين الكنية MADOX في القروب: ' + threadID);
+            resolve();
+          });
+        });
+      } catch (e) {
+        log.error('auto-nickname استثناء: ' + e.message);
+      }
+    }
   }
 }
 
@@ -207,6 +251,7 @@ function startBot() {
 
     reconnectAttempts = 0;
     globalApi = api;
+    botID = api.getCurrentUserID();
     engineCmd.setApi(api);
     setStartTime(Date.now());
 
