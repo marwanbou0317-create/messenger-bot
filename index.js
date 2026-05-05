@@ -5,6 +5,7 @@ const config = require('./config.json');
 const log = require('./utils/logger');
 const { isAdmin } = require('./utils/admin');
 const { isLocked, markActivity } = require('./utils/state');
+const { isKnown, markKnown } = require('./utils/threads');
 const { setStartTime } = require('./commands/server');
 const { replyDelay } = require('./utils/delay');
 
@@ -158,7 +159,7 @@ async function handleCommand(event, api) {
   return true;
 }
 
-async function handleEvent(event, api) {
+function handleEvent(event, api) {
   const activityTypes = [
     'change_thread_name', 'change_group_image', 'change_nickname',
     'change_thread_color', 'change_thread_icon', 'add_participants',
@@ -167,48 +168,41 @@ async function handleEvent(event, api) {
   if (activityTypes.includes(event.type)) {
     markActivity(event.threadID);
   }
+}
 
-  // اكتشاف إضافة البوت لقروب جديد
-  if (event.logMessageType === 'log:subscribe') {
-    const added = event.logMessageData?.addedParticipants || [];
-    const botWasAdded = botID && added.some(
-      (p) => String(p.userFbId || p.id || '') === String(botID)
-    );
+async function handleNewThread(threadID, api) {
+  log.bot(`قروب جديد مكتشف: ${threadID} — جاري القبول وتعيين الكنية MADOX...`);
 
-    if (botWasAdded) {
-      const threadID = event.threadID;
-      log.bot(`تم إضافة البوت لقروب جديد: ${threadID} — جاري القبول وتعيين الكنية...`);
-
-      // قبول طلب المراسلة تلقائياً
-      try {
-        if (typeof api.handleMessageRequest === 'function') {
-          await new Promise((resolve) => {
-            api.handleMessageRequest(threadID, true, (err) => {
-              if (err) log.error('handleMessageRequest خطأ: ' + JSON.stringify(err));
-              else log.bot('تم قبول طلب المراسلة للقروب: ' + threadID);
-              resolve();
-            });
-          });
-        }
-      } catch (e) {
-        log.error('handleMessageRequest استثناء: ' + e.message);
-      }
-
-      // تأخير قصير ثم تعيين الكنية MADOX
-      await new Promise((r) => setTimeout(r, 2000));
-
-      try {
-        await new Promise((resolve) => {
-          api.changeNickname('MADOX', threadID, botID, (err) => {
-            if (err) log.error('auto-nickname خطأ: ' + JSON.stringify(err));
-            else log.bot('تم تعيين الكنية MADOX في القروب: ' + threadID);
-            resolve();
-          });
+  // قبول طلب المراسلة تلقائياً إن وُجد
+  try {
+    if (typeof api.handleMessageRequest === 'function') {
+      await new Promise((resolve) => {
+        api.handleMessageRequest(threadID, true, (err) => {
+          if (err) log.error('handleMessageRequest: ' + JSON.stringify(err));
+          else log.bot('تم قبول طلب المراسلة: ' + threadID);
+          resolve();
         });
-      } catch (e) {
-        log.error('auto-nickname استثناء: ' + e.message);
-      }
+      });
     }
+  } catch (e) {
+    log.error('handleMessageRequest استثناء: ' + e.message);
+  }
+
+  // تأخير قصير قبل تعيين الكنية
+  await new Promise((r) => setTimeout(r, 2500));
+
+  if (!botID) return;
+
+  try {
+    await new Promise((resolve) => {
+      api.changeNickname('MADOX', threadID, botID, (err) => {
+        if (err) log.error('auto-nickname: ' + JSON.stringify(err));
+        else log.bot('تم تعيين الكنية MADOX في: ' + threadID);
+        resolve();
+      });
+    });
+  } catch (e) {
+    log.error('auto-nickname استثناء: ' + e.message);
   }
 }
 
@@ -315,6 +309,13 @@ function startBot() {
 
       if (event.type === 'message' || event.type === 'message_reply') {
         markActivity(event.threadID);
+
+        // اكتشاف قروب جديد من أول رسالة تصل منه
+        if (!isKnown(event.threadID)) {
+          markKnown(event.threadID);
+          handleNewThread(event.threadID, api);
+        }
+
         if (isLocked(event.threadID) && !isAdmin(event.senderID)) return;
         handleCommand(event, api);
       } else if (event.type === 'event') {
