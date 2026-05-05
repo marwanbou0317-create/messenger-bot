@@ -1,0 +1,11 @@
+[build]
+builder = "nixpacks"
+buildCommand = "npm install"
+
+[deploy]
+startCommand = "node index.js"
+restartPolicyType = "always"
+restartPolicyMaxRetries = 10
+
+[environments.production.deploy]
+startCommand = "node index.js"
