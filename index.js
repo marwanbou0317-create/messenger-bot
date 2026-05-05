@@ -171,6 +171,40 @@ function startBot() {
     globalApi = api;
     setStartTime(Date.now());
 
+    // Wrap sendMessage to auto-catch rejected promises from any command
+    const _origSend = api.sendMessage.bind(api);
+    api.sendMessage = (msg, threadID, callback) => {
+      const result = _origSend(msg, threadID, callback);
+      if (result && typeof result.catch === 'function') {
+        result.catch((e) => log.error('sendMessage خطأ: ' + (e && e.error ? e.error : JSON.stringify(e))));
+      }
+      return result;
+    };
+
+    // Wrap changeNickname similarly
+    if (api.changeNickname) {
+      const _origNick = api.changeNickname.bind(api);
+      api.changeNickname = (nick, threadID, userID, callback) => {
+        const result = _origNick(nick, threadID, userID, callback);
+        if (result && typeof result.catch === 'function') {
+          result.catch((e) => log.error('changeNickname خطأ: ' + (e && e.error ? e.error : JSON.stringify(e))));
+        }
+        return result;
+      };
+    }
+
+    // Wrap getThreadInfo similarly
+    if (api.getThreadInfo) {
+      const _origInfo = api.getThreadInfo.bind(api);
+      api.getThreadInfo = (threadID, callback) => {
+        const result = _origInfo(threadID, callback);
+        if (result && typeof result.catch === 'function') {
+          result.catch((e) => log.error('getThreadInfo خطأ: ' + (e && e.error ? e.error : JSON.stringify(e))));
+        }
+        return result;
+      };
+    }
+
     saveAppstate(api.getAppState());
     log.success('تم تسجيل الدخول بنجاح!');
     log.info('البوت يعمل الآن. البادئة: ' + config.prefix);
@@ -235,7 +269,10 @@ process.on('uncaughtException', (err) => {
 });
 
 process.on('unhandledRejection', (reason) => {
-  log.error('رفض وعد غير مُعالج: ' + reason);
+  const msg = reason instanceof Error
+    ? reason.message
+    : (typeof reason === 'object' ? JSON.stringify(reason) : String(reason));
+  log.error('رفض وعد غير مُعالج: ' + msg);
 });
 
 process.on('SIGINT', () => {
