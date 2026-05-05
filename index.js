@@ -13,6 +13,7 @@ const promoteCmd = require('./commands/promote');
 const demoteCmd = require('./commands/demote');
 const helpCmd = require('./commands/help');
 const serverCmd = require('./commands/server');
+const nicknameCmd = require('./commands/nickname');
 
 const APPSTATE_PATH = path.join(__dirname, 'appstate.json');
 const CONFIG_PATH = path.join(__dirname, 'config.json');
@@ -80,6 +81,11 @@ function handleCommand(event, api) {
     case 'قفل':
     case 'lock':
       lockCmd.handle(event, api, args, prefix);
+      break;
+
+    case 'كنية':
+    case 'nickname':
+      nicknameCmd.handle(event, api, args);
       break;
 
     case 'رفع':
