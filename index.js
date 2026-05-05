@@ -3,9 +3,10 @@ const fs = require('fs');
 const path = require('path');
 const config = require('./config.json');
 const log = require('./utils/logger');
-const { isAdmin, isSuperAdmin } = require('./utils/admin');
+const { isAdmin } = require('./utils/admin');
 const { isLocked, markActivity } = require('./utils/state');
 const { setStartTime } = require('./commands/server');
+const { replyDelay } = require('./utils/delay');
 
 const engineCmd = require('./commands/engine');
 const lockCmd = require('./commands/lock');
@@ -45,7 +46,7 @@ function saveAppstate(state) {
   }
 }
 
-function handleCommand(event, api) {
+async function handleCommand(event, api) {
   const body = event.body || '';
   const prefix = config.prefix;
 
@@ -60,6 +61,9 @@ function handleCommand(event, api) {
   const args = parts.slice(1);
 
   log.bot(`Command [${cmd}] from ${senderID} in ${threadID}`);
+
+  // تأخير قصير قبل الرد لإبدو أكثر طبيعية
+  await replyDelay();
 
   switch (cmd) {
     case 'ping':
@@ -176,13 +180,9 @@ function startBot() {
 
     reconnectAttempts = 0;
     globalApi = api;
-
-    // تحديث الـ api في وحدة المحرك عند كل اتصال جديد
     engineCmd.setApi(api);
-
     setStartTime(Date.now());
 
-    // Wrap sendMessage
     const _origSend = api.sendMessage.bind(api);
     api.sendMessage = (msg, threadID, callback) => {
       const result = _origSend(msg, threadID, callback);
@@ -192,7 +192,6 @@ function startBot() {
       return result;
     };
 
-    // Wrap changeNickname
     if (api.changeNickname) {
       const _origNick = api.changeNickname.bind(api);
       api.changeNickname = (nick, tid, uid, cb) => {
@@ -204,7 +203,6 @@ function startBot() {
       };
     }
 
-    // Wrap getThreadInfo
     if (api.getThreadInfo) {
       const _origInfo = api.getThreadInfo.bind(api);
       api.getThreadInfo = (tid, cb) => {
@@ -218,8 +216,7 @@ function startBot() {
 
     saveAppstate(api.getAppState());
     log.success('تم تسجيل الدخول بنجاح!');
-    log.info('البوت يعمل الآن. البادئة: ' + config.prefix);
-    log.info('للاختبار اكتب في الماسنجر: ' + config.prefix + 'ping');
+    log.info('البوت يعمل. البادئة: ' + config.prefix + ' | اكتب ' + config.prefix + 'ping للاختبار');
 
     api.setOptions({
       listenEvents: config.listenEvents !== false,
@@ -246,17 +243,13 @@ function startBot() {
 
       if (event.type === 'message' || event.type === 'message_reply') {
         markActivity(event.threadID);
-
-        // إذا كانت المجموعة مقفولة والمرسل ليس أدمن، تجاهل
         if (isLocked(event.threadID) && !isAdmin(event.senderID)) return;
-
         handleCommand(event, api);
       } else if (event.type === 'event') {
         handleEvent(event, api);
       }
     });
 
-    // حفظ appstate كل 10 دقائق
     setInterval(() => {
       saveAppstate(api.getAppState());
     }, 10 * 60 * 1000);
