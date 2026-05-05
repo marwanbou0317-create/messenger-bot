@@ -17,7 +17,6 @@ const nicknameCmd = require('./commands/nickname');
 const pingCmd = require('./commands/ping');
 
 const APPSTATE_PATH = path.join(__dirname, 'appstate.json');
-const CONFIG_PATH = path.join(__dirname, 'config.json');
 
 let reconnectAttempts = 0;
 let globalApi = null;
@@ -128,22 +127,13 @@ function handleCommand(event, api) {
 }
 
 function handleEvent(event, api) {
-  const threadID = event.threadID;
-
   const activityTypes = [
-    'change_thread_name',
-    'change_group_image',
-    'change_nickname',
-    'change_thread_color',
-    'change_thread_icon',
-    'add_participants',
-    'remove_participants',
-    'log:subscribe',
-    'log:unsubscribe',
+    'change_thread_name', 'change_group_image', 'change_nickname',
+    'change_thread_color', 'change_thread_icon', 'add_participants',
+    'remove_participants', 'log:subscribe', 'log:unsubscribe',
   ];
-
   if (activityTypes.includes(event.type)) {
-    markActivity(threadID);
+    markActivity(event.threadID);
   }
 }
 
@@ -158,7 +148,7 @@ function startBot() {
 
   log.info('جاري تسجيل الدخول...');
 
-  const loginOptions = {
+  login({
     appState: appstate,
     logLevel: config.logLevel || 'error',
     online: config.online !== false,
@@ -167,33 +157,32 @@ function startBot() {
     autoMarkRead: config.autoMarkRead === true,
     autoMarkDelivery: config.autoMarkDelivery === true,
     forceLogin: config.forceLogin === true,
-    userAgent:
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-  };
-
-  login(loginOptions, (err, api) => {
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+  }, (err, api) => {
     if (err) {
       const errMsg = err.error || err.message || JSON.stringify(err);
       log.error('فشل تسجيل الدخول: ' + errMsg);
-
-      if (errMsg === 'login-approval' || errMsg.includes('checkpoint')) {
-        log.error('⚠️  الحساب محتاج موافقة. تحقق من البريد أو SMS ثم شغّل: node reset-cookies.js');
+      if (errMsg === 'login-approval' || String(errMsg).includes('checkpoint')) {
+        log.error('⚠️  الحساب محتاج موافقة. شغّل: node reset-cookies.js');
         return;
       }
-
-      if (errMsg.includes('Not logged in') || errMsg.includes('appstate')) {
-        log.error('⚠️  انتهت صلاحية الجلسة. شغّل: node reset-cookies.js لتجديدها.');
+      if (String(errMsg).includes('Not logged in') || String(errMsg).includes('appstate')) {
+        log.error('⚠️  انتهت صلاحية الجلسة. شغّل: node reset-cookies.js');
         return;
       }
-
       scheduleReconnect();
       return;
     }
 
     reconnectAttempts = 0;
     globalApi = api;
+
+    // تحديث الـ api في وحدة المحرك عند كل اتصال جديد
+    engineCmd.setApi(api);
+
     setStartTime(Date.now());
 
+    // Wrap sendMessage
     const _origSend = api.sendMessage.bind(api);
     api.sendMessage = (msg, threadID, callback) => {
       const result = _origSend(msg, threadID, callback);
@@ -203,23 +192,25 @@ function startBot() {
       return result;
     };
 
+    // Wrap changeNickname
     if (api.changeNickname) {
       const _origNick = api.changeNickname.bind(api);
-      api.changeNickname = (nick, threadID, userID, callback) => {
-        const result = _origNick(nick, threadID, userID, callback);
+      api.changeNickname = (nick, tid, uid, cb) => {
+        const result = _origNick(nick, tid, uid, cb);
         if (result && typeof result.catch === 'function') {
-          result.catch((e) => log.error('changeNickname خطأ: ' + (e && e.error ? e.error : JSON.stringify(e))));
+          result.catch((e) => log.error('changeNickname خطأ: ' + JSON.stringify(e)));
         }
         return result;
       };
     }
 
+    // Wrap getThreadInfo
     if (api.getThreadInfo) {
       const _origInfo = api.getThreadInfo.bind(api);
-      api.getThreadInfo = (threadID, callback) => {
-        const result = _origInfo(threadID, callback);
+      api.getThreadInfo = (tid, cb) => {
+        const result = _origInfo(tid, cb);
         if (result && typeof result.catch === 'function') {
-          result.catch((e) => log.error('getThreadInfo خطأ: ' + (e && e.error ? e.error : JSON.stringify(e))));
+          result.catch((e) => log.error('getThreadInfo خطأ: ' + JSON.stringify(e)));
         }
         return result;
       };
@@ -256,7 +247,7 @@ function startBot() {
       if (event.type === 'message' || event.type === 'message_reply') {
         markActivity(event.threadID);
 
-        // إذا كانت المجموعة مقفولة والمرسل ليس أدمن، تجاهل الرسالة
+        // إذا كانت المجموعة مقفولة والمرسل ليس أدمن، تجاهل
         if (isLocked(event.threadID) && !isAdmin(event.senderID)) return;
 
         handleCommand(event, api);
@@ -278,7 +269,6 @@ function scheduleReconnect() {
     log.error(`وصل إلى الحد الأقصى من محاولات إعادة الاتصال (${maxAttempts}).`);
     process.exit(1);
   }
-
   reconnectAttempts++;
   const delay = config.reconnectDelay || 5000;
   log.warn(`إعادة الاتصال بعد ${delay / 1000} ثانية... (محاولة ${reconnectAttempts})`);
@@ -291,9 +281,7 @@ process.on('uncaughtException', (err) => {
 });
 
 process.on('unhandledRejection', (reason) => {
-  const msg = reason instanceof Error
-    ? reason.message
-    : (typeof reason === 'object' ? JSON.stringify(reason) : String(reason));
+  const msg = reason instanceof Error ? reason.message : (typeof reason === 'object' ? JSON.stringify(reason) : String(reason));
   log.error('رفض وعد غير مُعالج: ' + msg);
 });
 
