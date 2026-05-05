@@ -11,16 +11,13 @@ const { replyDelay } = require('./utils/delay');
 
 const engineCmd = require('./commands/engine');
 const lockCmd = require('./commands/lock');
-const promoteCmd = require('./commands/promote');
-const demoteCmd = require('./commands/demote');
 const helpCmd = require('./commands/help');
 const serverCmd = require('./commands/server');
 const nicknameCmd = require('./commands/nickname');
 const nicknamesCmd = require('./commands/nicknames');
 const pingCmd = require('./commands/ping');
-const youtubeCmd = require('./commands/youtube');
-const pinterestCmd = require('./commands/pinterest');
-const googleCmd = require('./commands/google');
+const promoteCmd = require('./commands/promote');
+const demoteCmd = require('./commands/demote');
 
 const APPSTATE_PATH = path.join(__dirname, 'appstate.json');
 
@@ -53,7 +50,7 @@ function saveAppstate(state) {
 }
 
 async function handleCommand(event, api) {
-  const body = event.body || '';
+  const body = event.body || '\';
   const prefix = config.prefix;
 
   if (!body.startsWith(prefix)) return false;
@@ -125,22 +122,6 @@ async function handleCommand(event, api) {
       demoteCmd.handle(event, api, args);
       break;
 
-    case 'يوتيوب':
-    case 'youtube':
-      youtubeCmd.handle(event, api, args);
-      break;
-
-    case 'بنترست':
-    case 'pinterest':
-      pinterestCmd.handle(event, api, args);
-      break;
-
-    case 'غوغل':
-    case 'google':
-    case 'صور':
-      googleCmd.handle(event, api, args);
-      break;
-
     case 'سيرفر':
     case 'server':
       serverCmd.handleServer(event, api);
@@ -173,7 +154,6 @@ function handleEvent(event, api) {
 async function handleNewThread(threadID, api) {
   log.bot(`قروب جديد مكتشف: ${threadID} — جاري القبول وتعيين الكنية MADOX...`);
 
-  // قبول طلب المراسلة تلقائياً إن وُجد
   try {
     if (typeof api.handleMessageRequest === 'function') {
       await new Promise((resolve) => {
@@ -188,7 +168,6 @@ async function handleNewThread(threadID, api) {
     log.error('handleMessageRequest استثناء: ' + e.message);
   }
 
-  // تأخير قصير قبل تعيين الكنية
   await new Promise((r) => setTimeout(r, 2500));
 
   if (!botID) return;
@@ -310,7 +289,6 @@ function startBot() {
       if (event.type === 'message' || event.type === 'message_reply') {
         markActivity(event.threadID);
 
-        // اكتشاف قروب جديد من أول رسالة تصل منه
         if (!isKnown(event.threadID)) {
           markKnown(event.threadID);
           handleNewThread(event.threadID, api);
