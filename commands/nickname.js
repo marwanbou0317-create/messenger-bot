@@ -4,44 +4,52 @@ function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
 
-// تغيير كنية واحدة — يجرب Promise أولاً ثم callback
-async function setNick(api, nickname, threadID, uid) {
-  // المحاولة الأولى: Promise مباشر
+// جلب معلومات القروب — يجرب Promise أولاً ثم callback مع timeout
+async function getThread(api, threadID) {
   try {
-    const result = api.changeNickname(nickname, threadID, uid);
-    if (result && typeof result.then === 'function') {
-      await result;
-      return true;
-    }
-  } catch (e) {
-    log.error(`setNick Promise خطأ لـ ${uid}: ${e.message}`);
-  }
+    const r = api.getThreadInfo(threadID);
+    if (r && typeof r.then === 'function') return await r;
+  } catch (_) {}
 
-  // المحاولة الثانية: callback كلاسيك
   return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), 15000);
+    try {
+      api.getThreadInfo(threadID, (err, info) => {
+        clearTimeout(timer);
+        resolve(err ? null : info);
+      });
+    } catch (e) {
+      clearTimeout(timer);
+      log.error('getThread استثناء: ' + e.message);
+      resolve(null);
+    }
+  });
+}
+
+// تغيير كنية واحدة — Promise أولاً ثم callback
+async function setNick(api, nickname, threadID, uid) {
+  try {
+    const r = api.changeNickname(nickname, threadID, uid);
+    if (r && typeof r.then === 'function') { await r; return true; }
+  } catch (_) {}
+
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(false), 10000);
     try {
       api.changeNickname(nickname, threadID, uid, (err) => {
-        if (err) {
-          log.error(`setNick callback خطأ لـ ${uid}: ${JSON.stringify(err)}`);
-          resolve(false);
-        } else {
-          resolve(true);
-        }
+        clearTimeout(timer);
+        resolve(!err);
       });
-      // timeout بعد 10 ثواني إذا لم يرد الـ callback
-      setTimeout(() => resolve(false), 10000);
     } catch (e) {
-      log.error(`setNick استثناء لـ ${uid}: ${e.message}`);
+      clearTimeout(timer);
       resolve(false);
     }
   });
 }
 
-// تغيير كنية مع إعادة محاولة حتى 3 مرات
 async function setNickRetry(api, nickname, threadID, uid) {
   for (let i = 1; i <= 3; i++) {
-    const ok = await setNick(api, nickname, threadID, uid);
-    if (ok) return true;
+    if (await setNick(api, nickname, threadID, uid)) return true;
     if (i < 3) await sleep(5000 * i);
   }
   return false;
@@ -57,32 +65,29 @@ async function handle(event, api, args) {
     const isReset = !nicknameText || nicknameText.toLowerCase() === 'reset' || nicknameText === 'مسح';
     const nickname = isReset ? '' : nicknameText;
 
-    api.getThreadInfo(threadID, async (err, info) => {
-      if (err || !info) {
-        return api.sendMessage('❌ تعذّر جلب معلومات المجموعة.', threadID);
-      }
+    api.sendMessage('⏳ جاري جلب أعضاء المجموعة...', threadID);
 
-      const members = info.participantIDs || [];
-      if (!members.length) return api.sendMessage('⚠️ لا يوجد أعضاء.', threadID);
+    const info = await getThread(api, threadID);
+    if (!info) return api.sendMessage('❌ تعذّر جلب معلومات المجموعة. حاول مرة أخرى.', threadID);
 
-      api.sendMessage(`⏳ جاري المعالجة لـ ${members.length} عضو...`, threadID);
+    const members = info.participantIDs || [];
+    if (!members.length) return api.sendMessage('⚠️ لا يوجد أعضاء.', threadID);
 
-      let done = 0, fail = 0;
+    api.sendMessage(`⏳ جاري المعالجة لـ ${members.length} عضو...`, threadID);
 
-      for (let i = 0; i < members.length; i++) {
-        if (i > 0 && i % 5 === 0) await sleep(15000);
-        else if (i > 0) await sleep(5000 + Math.random() * 3000);
+    let done = 0, fail = 0;
+    for (let i = 0; i < members.length; i++) {
+      if (i > 0 && i % 5 === 0) await sleep(15000);
+      else if (i > 0) await sleep(5000 + Math.random() * 3000);
 
-        const ok = await setNickRetry(api, nickname, threadID, members[i]);
-        ok ? done++ : fail++;
-      }
+      if (await setNickRetry(api, nickname, threadID, members[i])) done++;
+      else fail++;
+    }
 
-      api.sendMessage(
-        `✅ اكتمل!\n` +
-        `نجح: ${done} عضو${fail ? `\nفشل: ${fail} عضو` : ''}`,
-        threadID
-      );
-    });
+    api.sendMessage(
+      `✅ اكتمل!\nنجح: ${done}${fail ? `\nفشل: ${fail}` : ''}`,
+      threadID
+    );
     return;
   }
 
@@ -92,7 +97,6 @@ async function handle(event, api, args) {
 
   if (!ids.length) {
     return api.sendMessage(
-      `📝 الاستخدام:\n` +
       `/كنية @شخص [كنية] — تعيين\n` +
       `/كنية @شخص reset — مسح\n` +
       `/كنية الكل [كنية] — للجميع\n` +
@@ -109,10 +113,9 @@ async function handle(event, api, args) {
   const nickname = isReset ? '' : nicknameText;
 
   const ok = await setNickRetry(api, nickname, threadID, targetID);
-
   api.sendMessage(
     ok
-      ? isReset ? `✅ تم مسح كنية ${targetName}.` : `✅ تم تعيين كنية ${targetName}: "${nickname}"`
+      ? (isReset ? `✅ تم مسح كنية ${targetName}.` : `✅ تم تعيين كنية ${targetName}: "${nickname}"`)
       : `❌ فشل تغيير الكنية بعد 3 محاولات.`,
     threadID
   );
