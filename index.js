@@ -17,6 +17,9 @@ const serverCmd = require('./commands/server');
 const nicknameCmd = require('./commands/nickname');
 const nicknamesCmd = require('./commands/nicknames');
 const pingCmd = require('./commands/ping');
+const youtubeCmd = require('./commands/youtube');
+const pinterestCmd = require('./commands/pinterest');
+const googleCmd = require('./commands/google');
 
 const APPSTATE_PATH = path.join(__dirname, 'appstate.json');
 
@@ -118,6 +121,22 @@ async function handleCommand(event, api) {
     case 'خفض':
     case 'demote':
       demoteCmd.handle(event, api, args);
+      break;
+
+    case 'يوتيوب':
+    case 'youtube':
+      youtubeCmd.handle(event, api, args);
+      break;
+
+    case 'بنترست':
+    case 'pinterest':
+      pinterestCmd.handle(event, api, args);
+      break;
+
+    case 'غوغل':
+    case 'google':
+    case 'صور':
+      googleCmd.handle(event, api, args);
       break;
 
     case 'سيرفر':
