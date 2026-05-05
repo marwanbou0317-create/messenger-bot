@@ -4,13 +4,11 @@ function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
 
-// جلب معلومات القروب — يجرب Promise أولاً ثم callback مع timeout
 async function getThread(api, threadID) {
   try {
     const r = api.getThreadInfo(threadID);
     if (r && typeof r.then === 'function') return await r;
   } catch (_) {}
-
   return new Promise((resolve) => {
     const timer = setTimeout(() => resolve(null), 15000);
     try {
@@ -18,33 +16,18 @@ async function getThread(api, threadID) {
         clearTimeout(timer);
         resolve(err ? null : info);
       });
-    } catch (e) {
-      clearTimeout(timer);
-      log.error('getThread استثناء: ' + e.message);
-      resolve(null);
-    }
+    } catch (e) { clearTimeout(timer); resolve(null); }
   });
 }
 
-// تغيير كنية واحدة — Promise أولاً ثم callback
 async function setNick(api, nickname, threadID, uid) {
   try {
-    const r = api.changeNickname(nickname, threadID, uid);
-    if (r && typeof r.then === 'function') { await r; return true; }
-  } catch (_) {}
-
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => resolve(false), 10000);
-    try {
-      api.changeNickname(nickname, threadID, uid, (err) => {
-        clearTimeout(timer);
-        resolve(!err);
-      });
-    } catch (e) {
-      clearTimeout(timer);
-      resolve(false);
-    }
-  });
+    await api.setNickname(nickname, threadID, uid);
+    return true;
+  } catch (e) {
+    log.error(`setNick فشل لـ ${uid}: ${e.message}`);
+    return false;
+  }
 }
 
 async function setNickRetry(api, nickname, threadID, uid) {
@@ -66,9 +49,8 @@ async function handle(event, api, args) {
     const nickname = isReset ? '' : nicknameText;
 
     api.sendMessage('⏳ جاري جلب أعضاء المجموعة...', threadID);
-
     const info = await getThread(api, threadID);
-    if (!info) return api.sendMessage('❌ تعذّر جلب معلومات المجموعة. حاول مرة أخرى.', threadID);
+    if (!info) return api.sendMessage('❌ تعذّر جلب معلومات المجموعة.', threadID);
 
     const members = info.participantIDs || [];
     if (!members.length) return api.sendMessage('⚠️ لا يوجد أعضاء.', threadID);
@@ -77,18 +59,16 @@ async function handle(event, api, args) {
 
     let done = 0, fail = 0;
     for (let i = 0; i < members.length; i++) {
-      if (i > 0 && i % 5 === 0) await sleep(15000);
-      else if (i > 0) await sleep(5000 + Math.random() * 3000);
-
+      if (i > 0 && i % 5 === 0) await sleep(12000);
+      else if (i > 0) await sleep(4000 + Math.random() * 3000);
       if (await setNickRetry(api, nickname, threadID, members[i])) done++;
       else fail++;
     }
 
-    api.sendMessage(
+    return api.sendMessage(
       `✅ اكتمل!\nنجح: ${done}${fail ? `\nفشل: ${fail}` : ''}`,
       threadID
     );
-    return;
   }
 
   // ── كنية @شخص ──
