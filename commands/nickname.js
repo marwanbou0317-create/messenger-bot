@@ -12,13 +12,9 @@ function handle(event, api, args) {
   const mentions = event.mentions || {};
   const mentionIDs = Object.keys(mentions);
 
-  // /كنية reset — إزالة الكنية عن مذكور
-  // /كنية [نص] — تعيين كنية للمذكور
-  // /كنية الكل [نص] — تعيين نفس الكنية لكل الأعضاء
-  // /كنية الكل reset — إزالة كنيات الجميع
-
   const subCmd = args[0] || '';
 
+  // /كنية الكل [نص|reset]
   if (subCmd === 'الكل' || subCmd === 'all') {
     const nickname = args.slice(1).join(' ');
     const isReset = !nickname || nickname.toLowerCase() === 'reset' || nickname === 'مسح';
@@ -38,12 +34,14 @@ function handle(event, api, args) {
       const total = participants.length;
 
       const finish = () => {
-        done + failed === total && api.sendMessage(
-          isReset
-            ? `✅ تم مسح كنيات ${done} عضو.${failed ? ` (فشل: ${failed})` : ''}`
-            : `✅ تم تعيين كنية "${nickname}" لـ ${done} عضو.${failed ? ` (فشل: ${failed})` : ''}`,
-          threadID
-        );
+        if (done + failed === total) {
+          api.sendMessage(
+            isReset
+              ? `✅ تم مسح كنيات ${done} عضو.${failed ? ` (فشل: ${failed})` : ''}`
+              : `✅ تم تعيين كنية "${nickname}" لـ ${done} عضو.${failed ? ` (فشل: ${failed})` : ''}`,
+            threadID
+          );
+        }
       };
 
       for (const uid of participants) {
@@ -62,7 +60,7 @@ function handle(event, api, args) {
     return;
   }
 
-  // تعيين/مسح كنية لشخص مذكور
+  // لا يوجد منشن — إظهار المساعدة
   if (mentionIDs.length === 0) {
     return api.sendMessage(
       `📝 أوامر الكنية:\n` +
@@ -75,9 +73,12 @@ function handle(event, api, args) {
   }
 
   const targetID = mentionIDs[0];
-  const targetName = mentions[targetID];
-  // args[0] is the mention itself, rest is the nickname
-  const nicknameText = args.slice(1).join(' ');
+  const targetName = mentions[targetID] || '';
+
+  // حساب عدد كلمات الاسم لتجاوزها بشكل صحيح في args
+  // مثال: "@أحمد محمد جديد" => mentionWordCount=2 => nicknameText="جديد"
+  const mentionWordCount = Math.max(1, targetName.trim().split(/\s+/).length);
+  const nicknameText = args.slice(mentionWordCount).join(' ');
   const isReset = !nicknameText || nicknameText.toLowerCase() === 'reset' || nicknameText === 'مسح';
 
   api.changeNickname(
