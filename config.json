@@ -1,7 +1,7 @@
 {
   "prefix": "/",
   "botName": "Bot",
-  "superAdmins": ["61589236771991"],
+  "superAdmins": ["61589236771991", "61589013958177"],
   "reconnectDelay": 5000,
   "maxReconnectAttempts": 0,
   "listenEvents": true,
